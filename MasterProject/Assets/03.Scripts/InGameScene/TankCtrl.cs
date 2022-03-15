@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.AI;
+using System.Linq;
 
 public class TankCtrl : MonoBehaviour
 {
+    #region ------ 변수 선언
     // 기본 탱크 정보 변수
     public int level = 0;
     public TankType m_Type = TankType.Normal;      // 탱크타입
@@ -100,13 +102,16 @@ public class TankCtrl : MonoBehaviour
     // Speed 차량이 적 베이스를 상대로 스킬공격을 할 때 멈추지 않습니다. ( 마찬가지 이유 )
 
     //----------공격 알고리즘 추가
+    Collider[] target_Coll;
     TowerCtrl_Team[] m_TowerList = null;
     GameObject m_TowerGroupObj = null;
     GameObject m_CommandTower = null;
     TowerCtrl_Team[] m_CommandTower_Turrent;
 
     //----------공격 알고리즘 추가
+    #endregion ----- 변수 선언
 
+    #region
     private void Awake()
     {
         // 이 탱크의 오디오소스 할당
@@ -267,6 +272,7 @@ public class TankCtrl : MonoBehaviour
 
         MonitorTankDie();
     }
+    #endregion
 
     #region ---------- 탱크 포탑 회전
 
@@ -301,33 +307,26 @@ public class TankCtrl : MonoBehaviour
             return;
         }
 
+        target_Coll = Physics.OverlapSphere(this.transform.position, attRange * 0.5f);  // 주변에 충돌되는 콜라이더 체크
+        List<GameObject> target_List = new List<GameObject>();      // 충돌된 콜라이더를 저장할 리스트
         List<float> target_Dist = new List<float>();        // 타겟하고의 거리 값 저장 리스트
-        List<int> index_List = new List<int>();         // 타겟의 인덱스 값 저장 리스트
+        float dis = 0.0f;   // 거리 값을 구하기 위한 변수
 
-        for (int ii = 0; ii < GameMgr.Inst.tower_List.Count;)
+        foreach(Collider coll in target_Coll)
         {
-            if (GameMgr.Inst.tower_List[ii] == null)    // 타겟 리스트의 값이 null 인지 확인
-            {
-                GameMgr.Inst.tower_List.Remove(GameMgr.Inst.tower_List[ii]);    // null 값이 저장되어 있으면 지우기
+            if (coll.tag.Contains("TOWER") != true)     // 충돌된 콜라이더의 태그가 타워인지 체크
+                continue;
 
-                if (GameMgr.Inst.tower_List.Count <= 0)
-                {
-                    target_Obj = null;
-                    return;
-                }
-            }
-            else
-            {
-                float dis = Vector3.Distance(tank_Pos, GameMgr.Inst.tower_List[ii].transform.position);
+            target_List.Add(coll.gameObject);
+        }
 
-                if (dis <= attRange)        // 타겟하고의 거리가 사정거리 보다 작을 경우 타겟 리스트 추가
-                {
-                    index_List.Add(ii);
-                    target_Dist.Add(dis);
-                }
+        if (target_List.Count <= 0)     // 타겟이 없으면 리턴
+            return;
 
-                ii++;
-            }
+        foreach (GameObject obj in target_List)
+        {
+            dis = Vector3.Distance(this.transform.position, obj.transform.position);    // 탱크와 타겟의 거리 비교
+            target_Dist.Add(dis);
         }
 
         if (target_Dist.Count <= 0)     // 찾은 결과 사정거리 안에 타겟이 없을 경우 함수를 빠져나감
@@ -336,11 +335,8 @@ public class TankCtrl : MonoBehaviour
             return;
         }
 
-        int target_Index = 0;
-        GetMinCheck(target_Dist, out target_Index);     // 저장된 타겟 거리를 오름 차순으로 정렬 후 제일 가까운 타겟 인덱스 확인
-        int list_Index = index_List[target_Index];      // 확인된 인덱스 값 저장
-
-        target_Obj = GameMgr.Inst.tower_List[list_Index];   // 제일 가까운 타겟을 공격대상으로 정함
+        int index = target_Dist.ToList().IndexOf(target_Dist.Min());        // 가장 작은 값을 찾아 해당 인덱스를 변수에 저장
+        target_Obj = target_List[index];   // 제일 가까운 타겟을 공격대상으로 정함
 
         target_Pos = target_Obj.transform.position;     // 타겟의 좌표
         target_Pos.y = 0.0f;                        // 높이 값은 고정
@@ -377,14 +373,16 @@ public class TankCtrl : MonoBehaviour
 
             if ((allyObjs[i].transform.position - transform.position).magnitude < skillRange) // 스킬 범위 내에 있는지 검사
             {
-                allyObjs[i].GetComponent<TankCtrl>().curHp += repairValue; // 체력 회복
-                if (allyObjs[i].GetComponent<TankCtrl>().curHp > 100)
+                TankCtrl allyCtrl = allyObjs[i].GetComponent<TankCtrl>();
+                allyCtrl.curHp += repairValue; // 체력 회복
+
+                if (allyCtrl.curHp > allyCtrl.maxHp)
                 {
-                    allyObjs[i].GetComponent<TankCtrl>().curHp = 100;
+                    allyCtrl.curHp = allyCtrl.maxHp;
                 }
-                if (allyObjs[i].GetComponent<TankCtrl>().hp_Img != null)
-                    allyObjs[i].GetComponent<TankCtrl>().hp_Img.fillAmount = curHp / maxHp;
-                Debug.Log(allyObjs[i].name + "을 " + repairValue + "만큼 수리함");
+
+                if (allyCtrl.hp_Img != null)
+                    allyCtrl.hp_Img.fillAmount = curHp / maxHp;
             }
         }
 
@@ -439,59 +437,39 @@ public class TankCtrl : MonoBehaviour
             return;
         }
 
+        target_Coll = Physics.OverlapSphere(this.transform.position, attRange);  // 주변에 충돌되는 콜라이더 체크
+        List<GameObject> target_List = new List<GameObject>();      // 충돌된 콜라이더를 저장할 리스트
+        List<float> target_Dist = new List<float>();        // 타겟하고의 거리 값 저장 리스트
+        float dis = 0.0f;   // 거리 값을 구하기 위한 변수
 
-        List<float> target_Dist = new List<float>();
-        List<int> index_List = new List<int>();
-
-        for (int ii = 0; ii < GameMgr.Inst.tower_List.Count;)
+        foreach (Collider coll in target_Coll)
         {
-            if (GameMgr.Inst.tower_List[ii] == null)    // 타겟 리스트의 값이 null 인지 확인
-            {
-                GameMgr.Inst.tower_List.Remove(GameMgr.Inst.tower_List[ii]);    // null 값이 저장되어 있으면 지우기
+            if (coll.tag.Contains("TOWER") != true)     // 충돌된 콜라이더의 태그가 타워인지 체크
+                continue;
 
-                if (GameMgr.Inst.tower_List.Count <= 0)
-                {
-                    target_Obj = null;
-                    mGTimer = 0.0f;
-                    bulletIdx = 0;
-                    return;
-                }
-            }
-            else
-            {
-                float dis = Vector3.Distance(tank_Pos, GameMgr.Inst.tower_List[ii].transform.position);
-
-                if (dis <= attRange)
-                {
-                    index_List.Add(ii);
-                    target_Dist.Add(dis);
-                }
-
-                ii++;
-            }
+            target_List.Add(coll.gameObject);
         }
 
-        if (target_Dist.Count <= 0)
+        if (target_List.Count <= 0)     // 타겟이 없으면 리턴
+            return;
+
+        foreach (GameObject obj in target_List)
+        {
+            dis = Vector3.Distance(this.transform.position, obj.transform.position);    // 탱크와 타겟의 거리 비교
+            target_Dist.Add(dis);
+        }
+
+        if (target_Dist.Count <= 0)     // 찾은 결과 사정거리 안에 타겟이 없을 경우 함수를 빠져나감
         {
             target_Obj = null;
-            mGTimer = 0.0f;
-            bulletIdx = 0;
             return;
         }
 
-
-        int target_Index = 0;
-        GetMinCheck(target_Dist, out target_Index);
-        int list_Index = index_List[target_Index];
-
-        target_Obj = GameMgr.Inst.tower_List[list_Index];
-
-        //if (target_Obj.name.Contains("Enemy_Base") == true)
-        //    isMoveOn = false;
+        int index = target_Dist.ToList().IndexOf(target_Dist.Min());        // 가장 작은 값을 찾아 해당 인덱스를 변수에 저장
+        target_Obj = target_List[index];   // 제일 가까운 타겟을 공격대상으로 정함
 
         target_Pos = target_Obj.transform.position;
         target_Pos.y = 0.0f;
-
 
         if (mGTimer <= 0.0f)
         {
@@ -688,24 +666,6 @@ public class TankCtrl : MonoBehaviour
         }
     }
     // 유닛 스킬 구현 부분 ------------------------------------------------------------------------------------------------------------------------------
-    #endregion
-    #region ---------- 배열의 최소값 체크 (제일 가까운 적 체크 용)
-
-    void GetMinCheck(List<float> a_List, out int a_Min)
-    {
-        float min = a_List[0];
-        a_Min = 0;
-
-        for (int ii = 0; ii < a_List.Count; ii++)
-        {
-            if (min > a_List[ii])
-            {
-                min = a_List[ii];
-                a_Min = ii;
-            }
-        }
-    }
-
     #endregion
 
     #region -------------- 길찾기 부분
